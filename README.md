@@ -1,0 +1,2 @@
+# devops
+Educational DevOps repository
