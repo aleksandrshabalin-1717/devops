@@ -1,0 +1,273 @@
+# Ручная настройка VPN на Yandex Cloud
+
+b1gnjvo97rk8ettape2p    # cloud
+
+yc resource-manager folder list --cloud-id b1gnjvo97rk8ettape2p
+
+b1g16qa03rhk04acrrvc    # directory
+
+yc vpc network list --folder-id b1g16qa03rhk04acrrvc
+
+enp97tssmb0v8kkj5k3u    # network
+
+yc vpc subnet list --folder-id b1g16qa03rhk04acrrvc
+
+e9b33bj7q03afr9df7te    # subnet
+
+yc vpc subnet create \
+    --folder-id b1g16qa03rhk04acrrvc \
+    --name subnetwork \
+    --network-name network-vpn \
+    --zone ru-central1-b \
+    --range 192.168.7.0/24
+
+id: e2l2a163if5tifvlppnq
+folder_id: b1g16qa03rhk04acrrvc
+created_at: "2026-06-06T17:31:49Z"
+name: subnetwork
+network_id: enp97tssmb0v8kkj5k3u
+zone_id: ru-central1-b
+v4_cidr_blocks:
+  - 192.168.7.0/24
+
+yc compute instance create \
+    --folder-id b1g16qa03rhk04acrrvc \
+    --name vm \
+    --network-interface subnet-id=e2l2a163if5tifvlppnq,nat-ip-version=ipv4 \
+    --zone ru-central1-b \
+    --create-boot-disk size=21,image-folder-id=standard-images,image-family=ubuntu-2404-lts \
+    --ssh-key ~/.ssh/id_rsa.pub 
+
+id: epdiflqi5fl83184rkur
+folder_id: b1g16qa03rhk04acrrvc
+created_at: "2026-06-06T17:36:03Z"
+name: vm
+zone_id: ru-central1-b
+platform_id: standard-v2
+resources:
+  memory: "2147483648"
+  cores: "2"
+  core_fraction: "100"
+status: RUNNING
+metadata_options:
+  gce_http_endpoint: ENABLED
+  aws_v1_http_endpoint: ENABLED
+  gce_http_token: ENABLED
+  aws_v1_http_token: DISABLED
+  aws_v2_http_endpoint: ENABLED
+  aws_v2_http_token: ENABLED
+boot_disk:
+  mode: READ_WRITE
+  device_name: epdrt1rs0dgn6r3hvv3e
+  auto_delete: true
+  disk_id: epdrt1rs0dgn6r3hvv3e
+network_interfaces:
+  - index: "0"
+    mac_address: d0:0d:12:7d:75:22
+    subnet_id: e2l2a163if5tifvlppnq
+    primary_v4_address:
+      address: 192.168.7.22
+      one_to_one_nat:
+        address: 111.88.154.208
+        ip_version: IPV4
+serial_port_settings:
+  ssh_authorization: OS_LOGIN
+gpu_settings: {}
+fqdn: epdiflqi5fl83184rkur.auto.internal
+scheduling_policy: {}
+network_settings:
+  type: STANDARD
+placement_policy: {}
+hardware_generation:
+  legacy_features:
+    pci_topology: PCI_TOPOLOGY_V2
+application: {}
+
+yc compute ssh \
+  --id epdiflqi5fl83184rkur \
+  --identity-file ~/.ssh/id_rsa \
+  --login yc-user
+
+fhmsltrlq432bj4bmsgs
+
+yc compute ssh \
+  --id fhmsltrlq432bj4bmsgs \
+  --identity-file ~/.ssh/id_rsa \
+  --login yc-user
+
+sudo apt update
+
+sudo apt install firewalld -y
+sudo apt install easy-rsa -y
+sudo apt install openvpn -y
+
+# Настройка центра сертификации
+make-cadir ~/openvpn-ca
+cd openvpn-ca/
+vim vars
+
+set_var EASYRSA_REQ_COUNTRY     "RU"
+set_var EASYRSA_REQ_PROVINCE    "Moscow"
+set_var EASYRSA_REQ_CITY        "Moscow City"
+set_var EASYRSA_REQ_ORG         "Our Company Name"
+set_var EASYRSA_REQ_EMAIL       "sysadmin@company.ru"
+set_var EASYRSA_REQ_OU          "IT"
+set_var EASYRSA_ALGO            "ec"
+set_var EASYRSA_DIGEST          "sha512"
+
+./easyrsa init-pki
+# * /home/yc-user/openvpn-ca/pki
+
+./easyrsa build-ca
+# aleks
+# * /home/yc-user/openvpn-ca/pki/ca.crt
+
+./easyrsa gen-req server nopass
+# * req: /home/yc-user/openvpn-ca/pki/reqs/server.req
+# * key: /home/yc-user/openvpn-ca/pki/private/server.key
+
+./easyrsa sign-req server server
+# * /home/yc-user/openvpn-ca/pki/issued/server.crt
+
+openvpn --genkey secret ta.key
+# * /home/yc-user/openvpn-ca/ta.key
+
+sudo cp ~/openvpn-ca/pki/ca.crt \
+    ~/openvpn-ca/pki/issued/server.crt \
+    ~/openvpn-ca/pki/private/server.key \
+    ~/openvpn-ca/ta.key \
+    /etc/openvpn/server/
+
+# ------------------
+
+sudo cp /usr/share/doc/openvpn/examples/sample-config-files/server.conf /etc/openvpn/server/
+sudo vim /etc/openvpn/server/server.conf
+
+port 1194
+proto udp
+dev tun
+ca ca.crt
+cert server.crt
+key server.key
+cipher AES-256-GCM
+auth SHA512
+topology subnet
+server 10.8.0.0 255.255.255.0
+ifconfig-pool-persist /var/log/openvpn/ipp.txt
+push "redirect-gateway def1 bypass-dhcp"
+push "dhcp-option DNS 77.88.8.8"
+push "dhcp-option DNS 77.88.8.1"
+dh none
+keepalive 10 120
+tls-crypt ta.key
+user nobody
+group nogroup
+persist-key
+persist-tun
+status /var/log/openvpn/openvpn-status.log
+verb 3
+explicit-exit-notify 1
+
+# ------------------
+
+sudo sysctl -w net.ipv4.ip_forward=1
+echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.conf
+
+# sudo systemctl status firewalld
+# sudo systemctl enable firewalld
+# sudo systemctl start firewalld
+# sudo systemctl status firewalld
+
+sudo firewall-cmd --zone=public --add-port=1194/tcp --permanent
+sudo firewall-cmd --zone=public --add-service=openvpn --permanent
+sudo firewall-cmd --zone=trusted --add-interface=tun+ --permanent
+sudo firewall-cmd --zone=public --add-masquerade --permanent
+
+sudo firewall-cmd --reload
+# sudo systemctl reload firewalld
+
+    # sudo firewall-cmd --zone=public --list-all
+
+    # # После подключения первого пользователя
+    # sudo nft list ruleset | grep masquerade 2>/dev/null || sudo iptables -t nat -VN -L POSTROUTING
+
+    # # ip -br a
+    # # ip route | grep default
+    # # eth0
+
+# ------------------
+
+sudo systemctl enable openvpn-server@server
+sudo systemctl start openvpn-server@server
+sudo systemctl status openvpn-server@server
+
+# ------------------
+
+# Подготовка клиентских сертификатов
+mkdir -p ~/clients/keys
+
+./easyrsa gen-req user_admin nopass
+# * req: /home/yc-user/openvpn-ca/pki/reqs/user_admin.req
+# * key: /home/yc-user/openvpn-ca/pki/private/user_admin.key
+
+./easyrsa sign-req client user_admin
+# * /home/yc-user/openvpn-ca/pki/issued/user_admin.crt
+
+# ------------------
+
+# Настройка конфига пользователей
+mkdir -p ~/clients/files
+cp /usr/share/doc/openvpn/examples/sample-config-files/client.conf ~/clients/base.conf
+vim ~/clients/base.conf
+
+client
+dev tun
+proto udp
+remote 111.88.154.208 1194
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+cipher AES-256-GCM
+auth SHA512
+;tls-crypt ta.key
+verb 3
+
+# ------------------
+
+cp pki/private/user_admin.key ~/clients/keys/
+cp ta.key ~/clients/keys/
+cp ~/openvpn-ca/pki/ca.crt ~/clients/keys/
+cp ~/openvpn-ca/pki/issued/user_admin.crt ~/clients/keys/
+sudo chown yc-user:yc-user ~/clients/keys/*
+
+# ------------------
+
+vim  ~/clients/make_config.sh
+
+#!/bin/bash
+# First argument: Client identifier
+KEY_DIR=~/clients/keys
+OUTPUT_DIR=~/clients/files
+BASE_CONFIG=~/clients/base.conf
+cat ${BASE_CONFIG} \
+<(echo -e '<ca>') \
+${KEY_DIR}/ca.crt \
+<(echo -e '</ca>\n<cert>') \
+${KEY_DIR}/${1}.crt \
+<(echo -e '</cert>\n<key>') \
+${KEY_DIR}/${1}.key \
+<(echo -e '</key>\n<tls-crypt>') \
+${KEY_DIR}/ta.key \
+<(echo -e '</tls-crypt>') \
+> ${OUTPUT_DIR}/${1}.ovpn
+
+cd ~/clients
+chmod 700 ~/clients/make_config.sh
+./make_config.sh user_admin
+
+# ------------------
+
+# Передали файл на клиента
+vim ./files/user_admin.ovpn
