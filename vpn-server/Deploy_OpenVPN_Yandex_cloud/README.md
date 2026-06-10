@@ -2,7 +2,17 @@
 
 Полуавтоматический скрпит для развертывания VPN-сервера на облаке Yandex Cloud. Виртуальная машина сервера на оператционной системе Ubuntu 24.04. Клиент VPN на операционной системе MacOS, в следующих версия будут доработаны конфиги для Linux и Windows
 
-# Deploy VPN-server Yandex Cloud
+Время разворачивания 10 минут
+
+### Версии пакетов
+
+    OS            : Ubuntu 24.04 LTS
+    FireWalld     : 2.1.1
+    OpenVPN       : 2.6.19 x86_64-pc-linux-gnu
+    OpenSSL       : 3.0.13
+    Easyrsa       : 3.1.7-2
+
+## Deploy VPN-server Yandex Cloud
 
 1. Предварительно:
     - Зарегистрировать аккаунт в Yndex Cloud
@@ -10,67 +20,100 @@
     - Дать необходимые права и назначить роли для пользователя, под которыем будем разворачивать VPN-server
     - На рабочей машине должен быть установлен и настрое Yandex Cloud CLI
     - Сгенерировать публичный и приватный ключ для подключения к виртуальной машине по SSH
-2. Редактирование файла конфигурации "config.sh"
+2. Редактирование файла конфигурации `config.sh`
     Необходимые настройки:
 
-    - В переменную "CLOUD_NAME" установить имя облака
-    - Установить пути до публичного и приватного ключей в переменные "CLOUD_COMPUTER_INSTANCE_KEY" и "CLOUD_COMPUTER_INSTANCE_KEY_SECRET"
-    - После выполнения "script_0.sh", в переменную "CLOUD_COMPUTER_INSTANCE_NETWORK" установить внешний IP адрес виртуальной машины
+    - В переменную `CLOUD_NAME` установить имя облака
+    - Установить пути до публичного и приватного ключей в переменные `CLOUD_COMPUTER_INSTANCE_KEY` и `CLOUD_COMPUTER_INSTANCE_KEY_SECRET`
+    - После выполнения `script_0.sh`, в переменную `CLOUD_COMPUTER_INSTANCE_NETWORK` установить внешний IP адрес виртуальной машины
 
     Настройки по умолчанию (можно оставить как есть):
 
-    - Имя директории в облаке (директория создается автоматически) - CLOUD_DIR_NAME="server-vpn"
-    - Имя сети в облаке (сеть создается автоматически) - CLOUD_NETWORK_NAME="network-vpn"
-    - Имя подсети в облаке (подсеть создается автоматически) - CLOUD_SUB_NETWORK_NAME="sub-network-vpn"
-    - Зона для подсети - CLOUD_SUB_NETWORK_ZONE="ru-central1-a"
-    - Маска подсети - CLOUD_SUB_NETWORK_RANGE="10.128.0.0/24"
+    - Имя директории в облаке (директория создается автоматически) - `CLOUD_DIR_NAME="server-vpn"`
+    - Имя сети в облаке (сеть создается автоматически) - `CLOUD_NETWORK_NAME="network-vpn"`
+    - Имя подсети в облаке (подсеть создается автоматически) - `CLOUD_SUB_NETWORK_NAME="sub-network-vpn"`
+    - Зона для подсети - `CLOUD_SUB_NETWORK_ZONE="ru-central1-a"`
+    - Маска подсети - `CLOUD_SUB_NETWORK_RANGE="10.128.0.0/24"`
         Рекомендуется выбирать маску в диапазоне "10.XX.XX.XX", при выборе маски "192.168.XX.XX" могут возникнуть проблемы
-    - Имя виртуальной машины (ВМ создается автоматически) - CLOUD_COMPUTER_INSTANCE_NAME="vm-vpn"
-    - Здона для виртуальной машины, должна совпадать с зоной для сети CLOUD_SUB_NETWORK_ZONE - CLOUD_COMPUTER_INSTANCE_ZONE="ru-central1-a"
-    - Пользователь Yandex Cloud, для настройки ВМ (дефолтный в YCloud - "yc-user") - CLOUD_YUSER="yc-user"
-    - Имя клиента VPN, если изменить, то надо поправить ещё и в файле "copy_client_files.sh" - CLIENT_USER_NAME="user_admin"
+    - Имя виртуальной машины (ВМ создается автоматически) - `CLOUD_COMPUTER_INSTANCE_NAME="vm-vpn"`
+    - Здона для виртуальной машины, должна совпадать с зоной для сети `CLOUD_SUB_NETWORK_ZONE` - `CLOUD_COMPUTER_INSTANCE_ZONE="ru-central1-a"`
+    - Пользователь Yandex Cloud, для настройки ВМ (дефолтный в YCloud - "yc-user") - `CLOUD_YUSER="yc-user"`
+    - Имя клиента VPN, если изменить, то надо поправить ещё и в файле "copy_client_files.sh" - `CLIENT_USER_NAME="user_admin"`
 
 3. Настройка и запуск VPN сервера
 
     - На рабочей машине (с которой настраиваем), запустить скрипт "./script_0.sh" и дождаться его окончания
 
         1. Из вывода скрпта скоприровать ID, созданной виртуальной машины
-        2. Публичный адрес виртуальной машины, внести его в переменную конфига "config.sh" CLOUD_COMPUTER_INSTANCE_NETWORK
+        2. Публичный адрес виртуальной машины, внести его в переменную конфига "config.sh" `CLOUD_COMPUTER_INSTANCE_NETWORK`
 
     - Зайти на виртуальную машину и в ручном режиме выполнить команды
 
+        Зайти на виртуальную машину с помощью YC CLI API
+
+        ```
         yc compute ssh \
             --id <VM_ID> \
             --identity-file <PATH_SECRET_KEY> \
             --login yc-user
+        ```
 
-        1. cd ~/openvpn-ca/
-        2. ./easyrsa build-ca (Введенную парольнуж фразу запомнить, она пригодится далее)
-        3. ./easyrsa gen-req server nopass
-        4. ./easyrsa sign-req server server (Ввести парольную фразу, созданную ранеее)
+        На виртуальной машине выполнить код
+
+        ```
+        # Зайти в каталог
+        cd ~/openvpn-ca/
+
+        # Создать корневой сертифика
+        # Введенную парольнуж фразу запомнить, она пригодится далее
+        ./easyrsa build-ca
+
+        # Создать серверный сертификат
+        ./easyrsa gen-req server nopass
+
+        # Подписать серверный сертифика
+        # Ввести парольную фразу, созданную ранеее
+        ./easyrsa sign-req server server
+        ```
 
     - На рабочей машине (с которой настраиваем), запустить скрипт "./script_1.sh" и дождаться его окончания
 
     - Зайти на виртуальную машину и в ручном режиме выполнить команды
 
+        Зайти на виртуальную машину с помощью YC CLI API
+
+        ```
         yc compute ssh \
             --id <VM_ID> \
             --identity-file <PATH_SECRET_KEY> \
             --login yc-user
+        ```
 
-        1. cd ~/openvpn-ca/
-        2. ./easyrsa gen-req user_admin nopass
-        3. ./easyrsa sign-req client user_admin (Ввести парольную фразу, созданную ранеее)
+        На виртуальной машине выполнить код
+
+        ```
+        # Зайти в каталог
+        cd ~/openvpn-ca/
+
+         # Создать сертификат пользователя
+        ./easyrsa gen-req user_admin nopass
+
+        # Подписать сертифика пользователя
+        # Ввести парольную фразу, созданную ранеее
+        ./easyrsa sign-req client user_admin
+        ```
 
     - На рабочей машине (с которой настраиваем), запустить скрипт "./script_2.sh" и дождаться его окончания
 
     - Передать конфигурацию клиенту "OpenVPN" - "user_admin.ovpn" (имя файла может отличатся в зависимости от настроек выше)
 
-        1. cat ~/clients/files/user_admin.ovpn
+        ```
+        cat ~/clients/files/user_admin.ovpn
+        ```
 
     - По необходимости (скорее всего не потребуется) отдебажить настройки сети на VPN-сервере, настройки FireWallD
 
-# Backlog TODO
+## Backlog TODO
 
 1. Сделать конфигурации для клиентов Windows, Linux
-2. TODO В некоторых местах кода, хардкодом прописан "user_admin". Попробовать брать из переменной конфига CLIENT_USER_NAME
+2. TODO В некоторых местах кода, хардкодом прописан "user_admin". Попробовать брать из переменной конфига `CLIENT_USER_NAME`
